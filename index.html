@@ -89,6 +89,29 @@
         .edit-form .cancel-btn:hover {
             background-color: #545b62;
         }
+        .loading {
+            display: none;
+            color: #666;
+            font-style: italic;
+        }
+        .success {
+            color: #28a745;
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -99,15 +122,15 @@
              alt="Profile" class="profile-image">
         
         <div class="profile-info">
-            <strong>Name:</strong> <span id="name">Anna smith</span>
+            <strong>Name:</strong> <span id="name">Loading...</span>
         </div>
         
         <div class="profile-info">
-            <strong>Email:</strong> <span id="email">anna.smith@example.com</span>
+            <strong>Email:</strong> <span id="email">Loading...</span>
         </div>
         
         <div class="profile-info">
-            <strong>Interests:</strong> <span id="interests">coding</span>
+            <strong>Interests:</strong> <span id="interests">Loading...</span>
         </div>
         
         <button class="edit-btn" onclick="toggleEdit()">Edit Profile</button>
@@ -128,6 +151,9 @@
             </div>
             <button onclick="saveProfile()">Save</button>
             <button onclick="cancelEdit()" class="cancel-btn">Cancel</button>
+            <div id="loading" class="loading">Saving...</div>
+            <div id="successMessage" class="success"></div>
+            <div id="errorMessage" class="error"></div>
         </div>
     </div>
 
@@ -137,14 +163,20 @@
         };
 
         function loadUserData() {
-            fetch('/api/user')
+            fetch('/get-profile')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('name').textContent = data.name;
-                    document.getElementById('email').textContent = data.email;
-                    document.getElementById('interests').textContent = data.interests;
+                    document.getElementById('name').textContent = data.name || 'No name';
+                    document.getElementById('email').textContent = data.email || 'No email';
+                    document.getElementById('interests').textContent = data.interests || 'No interests';
                 })
-                .catch(error => console.error('Error loading user data:', error));
+                .catch(error => {
+                    console.error('Error loading user data:', error);
+                    // Set default values if API fails
+                    document.getElementById('name').textContent = 'Anna smith';
+                    document.getElementById('email').textContent = 'anna.smith@example.com';
+                    document.getElementById('interests').textContent = 'coding';
+                });
         }
 
         function toggleEdit() {
@@ -158,6 +190,8 @@
                 document.getElementById('editEmail').value = document.getElementById('email').textContent;
                 document.getElementById('editInterests').value = document.getElementById('interests').textContent;
                 form.style.display = 'block';
+                // Clear any previous messages
+                clearMessages();
             }
         }
 
@@ -166,33 +200,64 @@
             const email = document.getElementById('editEmail').value;
             const interests = document.getElementById('editInterests').value;
 
-            fetch('/api/user', {
-                method: 'PUT',
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            clearMessages();
+
+            // Send data to server
+            fetch('/save-profile', {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ name, email, interests })
+                body: JSON.stringify({
+                    name: name,
+                    email: email,
+                    interests: interests
+                })
             })
             .then(response => response.json())
             .then(data => {
-                document.getElementById('name').textContent = data.name;
-                document.getElementById('email').textContent = data.email;
-                document.getElementById('interests').textContent = data.interests;
-                document.getElementById('editForm').style.display = 'none';
-                alert('Profile updated successfully!');
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.success) {
+                    // Update the display with new data
+                    document.getElementById('name').textContent = name;
+                    document.getElementById('email').textContent = email;
+                    document.getElementById('interests').textContent = interests;
+                    
+                    // Show success message
+                    document.getElementById('successMessage').textContent = data.message;
+                    document.getElementById('successMessage').style.display = 'block';
+                    
+                    // Hide form after 2 seconds
+                    setTimeout(() => {
+                        document.getElementById('editForm').style.display = 'none';
+                    }, 2000);
+                } else {
+                    // Show error message
+                    document.getElementById('errorMessage').textContent = data.error || 'Failed to save profile';
+                    document.getElementById('errorMessage').style.display = 'block';
+                }
             })
             .catch(error => {
+                document.getElementById('loading').style.display = 'none';
                 console.error('Error saving profile:', error);
-                alert('Error saving profile. Please try again.');
+                document.getElementById('errorMessage').textContent = 'Network error. Please try again.';
+                document.getElementById('errorMessage').style.display = 'block';
             });
         }
 
         function cancelEdit() {
             document.getElementById('editForm').style.display = 'none';
+            clearMessages();
+        }
+
+        function clearMessages() {
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
         }
     </script>
 </body>
 </html>
-
-
-:
