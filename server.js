@@ -1,24 +1,3 @@
-// var express = require('express');
-// var path = require('path');
-// var fs = require('fs');
-// var app = express();
-
-
-// app.get('/', function(req, res) {
-//     res.sendFile(path.join(__dirname, 'index.html'));
-// });
-
-// app.get('/data', function(req, res) {
-//     var img = fs.readFileSync(path.join(__dirname, 'image.jpg'));
-//     res.writeHead(200, {'Content-Type': 'image/jpeg'});
-//     res.end(img, 'binary');
-// });
-
-// app.listen(3000, function() {
-//     console.log('Server is running on http://localhost:3000');
-// }   );
-
-
 let express = require('express');
 let path = require('path');
 let fs = require('fs');
@@ -39,114 +18,151 @@ app.get('/profile-picture', function(req, res) {
     res.end(img, 'binary');                     
 });
 
-// MongoDB connection string - make sure this matches your setup
+// MongoDB connection string - With authentication
 let mongoUrlLocal = "mongodb://admin:password@localhost:27017";
 
-// MongoDB options
-let MongoClientOptions = { useNewUrlParser: true, useUnifiedTopology: true };
+// Remove deprecated options - this will fix the warnings
+let MongoClientOptions = {};
 
 // Database configuration
-let databaseName = "user-account"; // Fixed typo: was "dabtabaseName"
+let databaseName = "user-account";
 let collectionName = "users";
 
-app.get('/get-profile', function(req, res) {
-    // Connect to the database
-    MongoClient.connect(mongoUrlLocal, MongoClientOptions, function(err, client) {
-        if(err) {
-            console.error('MongoDB connection error:', err);
-            console.error('Make sure MongoDB is running and accessible at localhost:27017');
-            console.error('Check if username/password are correct');
-            // Send fallback data instead of crashing
+// Global MongoDB client for connection reuse
+let mongoClient = null;
+
+// Initialize MongoDB connection
+async function initMongoDB() {
+    try {
+        mongoClient = new MongoClient(mongoUrlLocal, MongoClientOptions);
+        await mongoClient.connect();
+        console.log('✅ MongoDB connected successfully');
+        
+        // Test the connection
+        await mongoClient.db(databaseName).admin().ping();
+        console.log('✅ MongoDB ping successful');
+    } catch (error) {
+        console.error('❌ MongoDB connection failed:', error);
+        console.error('Make sure MongoDB Docker container is running on port 27017');
+        mongoClient = null;
+    }
+}
+
+// Initialize MongoDB when server starts
+initMongoDB();
+
+app.get('/get-profile', async function(req, res) {
+    if (!mongoClient) {
+        console.error('❌ MongoDB not connected');
+        res.json({
+            name: "Anna smith",
+            email: "anna.smith@example.com", 
+            interests: "coding",
+            _fallback: true
+        });
+        return;
+    }
+
+    try {
+        let db = mongoClient.db(databaseName);
+        let myquery = { username: "demo" };
+        
+        let result = await db.collection(collectionName).findOne(myquery);
+        
+        if (result) {
+            console.log('✅ Profile retrieved successfully');
+            res.json(result);
+        } else {
+            console.log('⚠️ No profile found, sending default data');
             res.json({
                 name: "Anna smith",
-                email: "anna.smith@example.com", 
-                interests: "coding"
+                email: "anna.smith@example.com",
+                interests: "coding",
+                _default: true
             });
-            return;
         }
-
-        let db = client.db(databaseName);
-        let myquery = { username: "demo" };
-
-        db.collection(collectionName).findOne(myquery, function(err, result) {
-            if(err) {
-                console.error('Database query error:', err);
-                client.close();
-                // Send fallback data instead of crashing
-                res.json({
-                    name: "Anna smith",
-                    email: "anna.smith@example.com",
-                    interests: "coding"
-                });
-                return;
-            }
-            
-            client.close();
-            
-            // Send response - if no result found, send default data
-            if (result) {
-                res.json(result);
-            } else {
-                res.json({
-                    name: "Anna smith",
-                    email: "anna.smith@example.com",
-                    interests: "coding"
-                });
-            }
-        });             
-    });
+    } catch (error) {
+        console.error('❌ Database query error:', error);
+        res.json({
+            name: "Anna smith",
+            email: "anna.smith@example.com",
+            interests: "coding",
+            _error: true
+        });
+    }
 });
 
 // POST endpoint to save profile data
-app.post('/save-profile', function(req, res) {
+app.post('/save-profile', async function(req, res) {
+    console.log('📝 Attempting to save profile:', req.body);
+    
+    if (!mongoClient) {
+        console.error('❌ MongoDB not connected');
+        res.json({ 
+            success: false, 
+            error: 'Database connection not available. Please try again.' 
+        });
+        return;
+    }
+
     let profileData = {
         username: "demo",
         name: req.body.name,
         email: req.body.email,
-        interests: req.body.interests
+        interests: req.body.interests,
+        lastUpdated: new Date()
     };
 
-    MongoClient.connect(mongoUrlLocal, MongoClientOptions, function(err, client) {
-        if(err) {
-            console.error('MongoDB connection error:', err);
-            res.json({ 
-                success: false, 
-                error: 'Database connection failed. Make sure MongoDB is running.' 
-            });
-            return;
-        }
-
-        let db = client.db(databaseName);
+    try {
+        let db = mongoClient.db(databaseName);
         
         // Use upsert to update if exists, insert if doesn't exist
-        db.collection(collectionName).updateOne(
+        let result = await db.collection(collectionName).updateOne(
             { username: "demo" },
             { $set: profileData },
-            { upsert: true },
-            function(err, result) {
-                client.close();
-                
-                if(err) {
-                    console.error('Database save error:', err);
-                    res.json({ 
-                        success: false, 
-                        error: 'Failed to save profile data' 
-                    });
-                } else {
-                    console.log('Profile saved successfully');
-                    res.json({ 
-                        success: true, 
-                        message: 'Profile updated successfully!' 
-                    });
-                }
-            }
+            { upsert: true }
         );
+        
+        console.log('✅ Profile saved successfully:', result);
+        res.json({ 
+            success: true, 
+            message: 'Profile updated successfully!',
+            modifiedCount: result.modifiedCount,
+            upsertedCount: result.upsertedCount
+        });
+        
+    } catch (error) {
+        console.error('❌ Database save error:', error);
+        res.json({ 
+            success: false, 
+            error: 'Failed to save profile data: ' + error.message 
+        });
+    }
+});
+
+// Health check endpoint
+app.get('/health', function(req, res) {
+    res.json({
+        status: 'ok',
+        mongodb: mongoClient ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString()
     });
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('🛑 Shutting down gracefully...');
+    if (mongoClient) {
+        await mongoClient.close();
+        console.log('✅ MongoDB connection closed');
+    }
+    process.exit(0);
 });
 
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Visit http://localhost:${PORT} to view the application`);
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`🌐 Visit http://localhost:${PORT} to view the application`);
+    console.log(`🔧 Health check: http://localhost:${PORT}/health`);
 });
